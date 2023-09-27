@@ -1,0 +1,6 @@
+"final_project.obj",
+"uart.obj",
+"eeprom.obj",
+"delay.obj" 
+TO "final_project" 
+RAMSIZE(256) 

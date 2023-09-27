@@ -1,0 +1,268 @@
+C51 COMPILER V7.08   EEPROM                                                                05/30/2023 04:27:23 PAGE 1   
+
+
+C51 COMPILER V7.08, COMPILATION OF MODULE EEPROM
+OBJECT MODULE PLACED IN eeprom.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE eeprom.c BROWSE DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          #include <reg52.h> //包含標頭檔，一般情況不需要改動，標頭檔包含特殊功能寄存器的定義
+   2          #include <intrins.h>
+   3          #include "eeprom.h"
+   4          
+   5          #define  _Nop()  _nop_()    //定義空指令
+   6          
+   7          // 常,變數定義區                                         
+   8          sbit SDA=P3^5;            //類比I2C資料傳送位元 00111111
+   9          sbit SCL=P3^4;            //類比I2C時鐘控制位元
+  10          
+  11          bit ack;
+  12          /*------------------------------------------------
+  13                              啟動匯流排
+  14          ------------------------------------------------*/
+  15          void Start_I2c()        //SDA從1變0時，SCL為1
+  16          {
+  17   1        SDA=1;    //發送起始條件的資料信號
+  18   1        _Nop();
+  19   1        SCL=1;
+  20   1        _Nop();    //起始條件建立時間大於4.7us,延時
+  21   1        _Nop();
+  22   1        _Nop();
+  23   1        _Nop();
+  24   1        _Nop();    
+  25   1        SDA=0;     //發送起始信號
+  26   1        _Nop();    //起始條件鎖定時間大於4μ
+  27   1        _Nop();
+  28   1        _Nop();
+  29   1        _Nop();
+  30   1        _Nop();       
+  31   1        SCL=0;    //鉗住I2C匯流排，準備發送或接收資料
+  32   1        _Nop();
+  33   1        _Nop();
+  34   1      }
+  35          /*------------------------------------------------
+  36                              結束匯流排
+  37          ------------------------------------------------*/
+  38          void Stop_I2c() //SDA從0變1時，SCL為1
+  39          {
+  40   1        SDA=0;    //發送結束條件的資料信號
+  41   1        _Nop();   //發送結束條件的時鐘信號
+  42   1        SCL=1;    //結束條件建立時間大於4μ
+  43   1        _Nop();
+  44   1        _Nop();
+  45   1        _Nop();
+  46   1        _Nop();
+  47   1        _Nop();
+  48   1        SDA=1;    //發送I2C匯流排結束信號
+  49   1        _Nop();
+  50   1        _Nop();
+  51   1        _Nop();
+  52   1        _Nop();
+  53   1      }
+  54          
+  55          /*----------------------------------------------------------------
+C51 COMPILER V7.08   EEPROM                                                                05/30/2023 04:27:23 PAGE 2   
+
+  56                           位元組資料傳送函數               
+  57          函數原型: void  SendByte(unsigned char c);
+  58          功能:  將資料c發送出去,可以是位址,也可以是資料,發完後等待應答,並對
+  59               此狀態位元進行操作.(不應答或非應答都使ack=0 假)     
+  60               發送資料正常，ack=1; ack=0表示被控器無應答或損壞。
+  61          ------------------------------------------------------------------*/
+  62          void  EEPROM_SendByte(unsigned char c)
+  63          {
+  64   1              unsigned char BitCnt;
+  65   1       
+  66   1              for(BitCnt=0;BitCnt<8;BitCnt++)  //要傳送的資料長度為8位元
+  67   1          {
+  68   2           if((c<<BitCnt)&0x80)SDA=1;   //判斷發送位 &0x80=1000 0000檢查最高位元
+  69   2             else  SDA=0;                
+  70   2           _Nop();
+  71   2           SCL=1;               //置時鐘線為高，通知被控器開始接收資料位元
+  72   2           _Nop(); 
+  73   2           _Nop();             //保證時鐘高電平週期大於4μ
+  74   2           _Nop();
+  75   2           _Nop();
+  76   2           _Nop();         
+  77   2           SCL=0; 
+  78   2          }
+  79   1          
+  80   1          _Nop();
+  81   1          _Nop();
+  82   1          SDA=1;               //8位元發送完後釋放資料線，準備接收應答位(要接收時需設成high，因為共用同一條)
+  83   1          _Nop();
+  84   1          _Nop();   
+  85   1          SCL=1;
+  86   1          _Nop();
+  87   1          _Nop();
+  88   1          _Nop();
+  89   1          if(SDA==1)ack=0;     
+  90   1             else ack=1;        //判斷是否接收到應答信號
+  91   1          SCL=0;
+  92   1          _Nop();
+  93   1          _Nop();
+  94   1      }
+  95          
+  96          /*----------------------------------------------------------------
+  97                           位元組資料傳送函數               
+  98          函數原型: unsigned char  RcvByte();
+  99          功能:  用來接收從器件傳來的資料,並判斷匯流排錯誤(不發應答信號)，
+ 100               發完後請用應答函數。  
+ 101          ------------------------------------------------------------------*/    
+ 102          unsigned char  RcvByte()
+ 103          {
+ 104   1        unsigned char retc;
+ 105   1        unsigned char BitCnt;
+ 106   1        
+ 107   1        retc=0; 
+ 108   1        SDA=1;             //置資料線為輸入方式
+ 109   1        for(BitCnt=0;BitCnt<8;BitCnt++)
+ 110   1        {
+ 111   2          _Nop();           
+ 112   2          SCL=0;       //置時鐘線為低，準備接收資料位元
+ 113   2          _Nop();
+ 114   2          _Nop();      //時鐘低電平週期大於4.7us
+ 115   2          _Nop();
+ 116   2          _Nop();
+ 117   2          _Nop();
+C51 COMPILER V7.08   EEPROM                                                                05/30/2023 04:27:23 PAGE 3   
+
+ 118   2          SCL=1;       //置時鐘線為高使資料線上資料有效
+ 119   2          _Nop();
+ 120   2          _Nop();
+ 121   2          retc=retc<<1;
+ 122   2          if(SDA==1)retc=retc+1; //讀數據位元,接收的資料位元放入retc中
+ 123   2          _Nop();
+ 124   2          _Nop(); 
+ 125   2        }
+ 126   1        SCL=0;    
+ 127   1        _Nop();
+ 128   1        _Nop();
+ 129   1        return(retc);
+ 130   1      }
+ 131          
+ 132          /*----------------------------------------------------------------
+ 133                               應答子函數
+ 134          原型:  void Ack_I2c(void);
+ 135           
+ 136          ----------------------------------------------------------------*/
+ 137          void Ack_I2c(void)
+ 138          {
+ 139   1        
+ 140   1        SDA=0;     
+ 141   1        _Nop();
+ 142   1        _Nop();
+ 143   1        _Nop();      
+ 144   1        SCL=1;
+ 145   1        _Nop();
+ 146   1        _Nop();              //時鐘低電平週期大於4μ
+ 147   1        _Nop();
+ 148   1        _Nop();
+ 149   1        _Nop();  
+ 150   1        SCL=0;               //清時鐘線，鉗住I2C匯流排以便繼續接收
+ 151   1        _Nop();
+ 152   1        _Nop();    
+ 153   1      }
+ 154          /*----------------------------------------------------------------
+ 155                               非應答子函數
+ 156          原型:  void NoAck_I2c(void);
+ 157           
+ 158          ----------------------------------------------------------------*/
+ 159          void NoAck_I2c(void)
+ 160          {
+ 161   1        
+ 162   1        SDA=1;
+ 163   1        _Nop();
+ 164   1        _Nop();
+ 165   1        _Nop();      
+ 166   1        SCL=1;
+ 167   1        _Nop();
+ 168   1        _Nop();              //時鐘低電平週期大於4μ
+ 169   1        _Nop();
+ 170   1        _Nop();
+ 171   1        _Nop();  
+ 172   1        SCL=0;                //清時鐘線，鉗住I2C匯流排以便繼續接收
+ 173   1        _Nop();
+ 174   1        _Nop();    
+ 175   1      }
+ 176          
+ 177          /*----------------------------------------------------------------
+ 178                              向有子位址器件發送多位元組資料函數               
+ 179          函數原型: bit  ISendStr(unsigned char sla,unsigned char suba,ucahr *s,unsigned char no);  
+C51 COMPILER V7.08   EEPROM                                                                05/30/2023 04:27:23 PAGE 4   
+
+ 180          功能:     從啟動匯流排到發送位址，子位址,資料，結束匯流排的全過程,從器件
+ 181                    位址sla，子位址suba，發送內容是s指向的內容，發送no個位元組。
+ 182                     如果返回1表示操作成功，否則操作有誤。
+ 183          注意：    使用前必須已結束匯流排。
+ 184          ----------------------------------------------------------------*/
+ 185          bit ISendStr(unsigned char sla,unsigned char suba,unsigned char *s,unsigned char no)
+ 186          {
+ 187   1         unsigned char i;
+ 188   1      
+ 189   1         Start_I2c();               //啟動匯流排
+ 190   1         EEPROM_SendByte(sla);             //發送器件地址
+ 191   1           if(ack==0)return(0);
+ 192   1         EEPROM_SendByte(suba);            //發送器件子地址
+ 193   1           if(ack==0)return(0);
+ 194   1      
+ 195   1         for(i=0;i<no;i++)
+ 196   1          {   
+ 197   2           EEPROM_SendByte(*s);            //發送資料
+ 198   2             if(ack==0)return(0);
+ 199   2           s++;
+ 200   2          } 
+ 201   1       Stop_I2c();                  //結束匯流排
+ 202   1        return(1);
+ 203   1      }
+ 204          
+ 205          /*----------------------------------------------------------------
+ 206                              向有子位址器件讀取多位元組資料函數               
+ 207          函數原型: bit  ISendStr(unsigned char sla,unsigned char suba,ucahr *s,unsigned char no);  
+ 208          功能:     從啟動匯流排到發送位址，子位址,讀數據，結束匯流排的全過程,從器件
+ 209                    位址sla，子位址suba，讀出的內容放入s指向的存儲區，讀no個位元組。
+ 210                     如果返回1表示操作成功，否則操作有誤。
+ 211          注意：    使用前必須已結束匯流排。
+ 212          ----------------------------------------------------------------*/
+ 213          bit IRcvStr(unsigned char sla,unsigned char suba,unsigned char *s,unsigned char no)
+ 214          {
+ 215   1         unsigned char i;
+ 216   1      
+ 217   1         Start_I2c();               //啟動匯流排
+ 218   1         EEPROM_SendByte(sla);             //發送器件地址
+ 219   1           if(ack==0)return(0);
+ 220   1         EEPROM_SendByte(suba);            //發送器件子地址
+ 221   1           if(ack==0)return(0);
+ 222   1      
+ 223   1         Start_I2c();
+ 224   1         EEPROM_SendByte(sla+1);                      //write:最後一位0 read:最後一位1 => +1從write變read
+ 225   1            if(ack==0)return(0);
+ 226   1      
+ 227   1         for(i=0;i<no-1;i++)
+ 228   1          {   
+ 229   2           *s=RcvByte();              //發送資料
+ 230   2            Ack_I2c();                //發送就答位 
+ 231   2           s++;
+ 232   2          } 
+ 233   1         *s=RcvByte();
+ 234   1          NoAck_I2c();                 //發送非應位
+ 235   1         Stop_I2c();                    //結束匯流排
+ 236   1        return(1);
+ 237   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    310    ----
+C51 COMPILER V7.08   EEPROM                                                                05/30/2023 04:27:23 PAGE 5   
+
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----      12
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

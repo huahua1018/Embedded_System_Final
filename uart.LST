@@ -1,0 +1,114 @@
+C51 COMPILER V7.08   UART                                                                  05/30/2023 04:27:23 PAGE 1   
+
+
+C51 COMPILER V7.08, COMPILATION OF MODULE UART
+OBJECT MODULE PLACED IN uart.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE uart.c BROWSE DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          #include <reg52.h> //包含標頭檔，一般情況不需要改動，標頭檔包含特殊功能寄存器的定義
+   2          #include "uart.h"
+   3          
+   4          /*狀態*/
+   5          #define Error   '1'
+   6          #define Win             '2'
+   7          #define Loss    '3'
+   8          #define Wrong   '4'
+   9          #define Start   '5'
+  10          #define Time    '6'
+  11          
+  12          unsigned int com_flag = 0;      //是否收到指令
+  13          unsigned int  MAX = 4;  //result_buf最多存多少
+  14          unsigned int head = 0;  //result_buf儲存的idx
+  15          unsigned char result_buf[5]={'9','9','9','9','\n'};
+  16          unsigned char result_flag = 0;  //是否剛收到猜測結果
+  17          unsigned char command;  //儲存收到的指令
+  18          
+  19          /*------------------------------------------------
+  20                              串口初始化
+  21          ------------------------------------------------*/
+  22          void InitUART  (void)
+  23          {
+  24   1      
+  25   1          SCON  = 0x50;                       // SCON: 模式 1, 8-bit UART, 使能接收  
+  26   1          TMOD |= 0x20;               // TMOD: timer 1, mode 2, 8-bit 重裝
+  27   1          TH1   = 0xFD;               // TH1:  重裝值 9600 串列傳輸速率 晶振 11.0592MHz  
+  28   1          TR1   = 1;                  // TR1:  timer 1 打開                         
+  29   1          EA    = 1;                  //打開總中斷
+  30   1      }
+  31          
+  32          /*------------------------------------------------
+  33                              發送一個位元組
+  34          ------------------------------------------------*/
+  35          void UART_SendByte(unsigned char dat)
+  36          {
+  37   1              SBUF = dat;
+  38   1              while(!TI);
+  39   1              TI = 0;
+  40   1      }
+  41          
+  42          /*------------------------------------------------
+  43                              發送一個字串
+  44          ------------------------------------------------*/
+  45          void UART_SendStr(unsigned char *s)
+  46          {
+  47   1              while(*s!='\0')// \0 表示字串結束標誌，通過檢測是否字串末尾
+  48   1              {
+  49   2                      UART_SendByte(*s);
+  50   2                      if(*s=='\n')    //若結尾是換行符號也跳出
+  51   2                              break;
+  52   2                      s++;
+  53   2              }
+  54   1      }
+  55          
+C51 COMPILER V7.08   UART                                                                  05/30/2023 04:27:23 PAGE 2   
+
+  56          /*------------------------------------------------
+  57                               串口中斷程式
+  58          ------------------------------------------------*/
+  59          void UART_SER (void) interrupt 4 //串列中斷服務程式
+  60          {
+  61   1         unsigned char Temp;          //定義臨時變數 
+  62   1         
+  63   1         if(RI)                        //判斷是接收中斷產生
+  64   1         {
+  65   2                RI=0;                      //標誌位元清零
+  66   2                Temp=SBUF;                 //讀入緩衝區的值
+  67   2              
+  68   2                //若接收到的是Time指令，則將遊戲時間-1
+  69   2                if(Temp==Time)
+  70   2                {
+  71   3                      game_time -= 1;
+  72   3                }
+  73   2                //若當前接收到的是猜測結果，則儲存在陣列裡
+  74   2                else if(result_flag == 1)
+  75   2                {
+  76   3                      result_buf[head]=Temp;
+  77   3                      head++;
+  78   3                }
+  79   2                //若接收到的是其他指令
+  80   2                else
+  81   2                {
+  82   3                      com_flag = 1;
+  83   3                      command = Temp;
+  84   3                      //若當前接收到的是Wrong指令，代表接下來會收到result
+  85   3                      if(command==Wrong)
+  86   3                              result_flag = 1;
+  87   3                }
+  88   2              }
+  89   1      } 
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    126    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     13    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
