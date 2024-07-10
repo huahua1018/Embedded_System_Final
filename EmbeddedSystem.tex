@@ -1,0 +1,373 @@
+\documentclass{scrartcl}
+
+% 引入外部套件
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{color}
+\usepackage{listings}
+\usepackage{xcolor} 
+\usepackage{xeCJK}
+\usepackage{indentfirst}
+\usepackage{listings}
+\usepackage{placeins}
+\setCJKmainfont{標楷體}
+
+% 自訂命令
+\newcommand{\mytitle}{嵌入式系統期末專案}
+\newcommand{\myname}{00957148 盧品樺}
+\newcommand{\mysubtitle}{--1A2B猜數字遊戲--}
+\newcommand{\mydate}{\today}
+% \newcommand{\myemail}{我的 email}
+
+% 設定超連結的顏色
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+
+% 設定程式碼的外觀
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{lightgray!20}, % 設定背景顏色
+    basicstyle=\ttfamily\color{black}, % 設定字型和顏色
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    commentstyle=\color{green!50!black}\itshape, % 設定注釋顏色
+    escapeinside={\%*}{*)},
+    extendedchars=true,
+    frame=single,
+    keepspaces=true,
+    keywordstyle=\color{blue}\bfseries, % 設定關鍵字顏色
+    language=Python, % 設定語言
+    numbers=left, % 在左側顯示行號
+    numbersep=5pt,
+    numberstyle=\tiny\color{gray}, % 設定行號字型和顏色
+    rulecolor=\color{white},
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    stepnumber=1,
+    stringstyle=\color{teal}, % 設定字串顏色
+    tabsize=4,
+    title=\lstname
+}
+% 設定使用上述樣式的程式碼塊
+\lstset{style=mystyle}
+% 設定標題、作者和日期
+\title{\mytitle}
+\author{\myname}
+\subtitle{\mysubtitle}
+\date{\mydate}
+
+\begin{document}
+
+\maketitle
+
+\section{專案介紹}
+
+\setlength{\parindent}{2em}
+這是一個1A2B猜數字遊戲，玩家一利用8051來輸入猜測的數字，玩家二則透過手機的MyMQTT來出題目，而ESP32則類似裁判的角色，負責控制遊戲的開始和結束以及上傳遊戲紀錄。
+
+\subsection{遊戲流程}
+
+\subsubsection{前置作業}
+{\indent}首先，玩家一需使用8051的16 keyboard按下8個號碼(代表玩家帳號)，並藉由UART傳送給ESP32，按下的帳號會顯示在七段顯示器上，且該帳號會儲存在8051的EEPROM中，除非長按一秒登出鍵，否則8051重開機後依然會保持登入狀態。此時ESP32會透過MyMQTT傳送指令給玩家二，要求玩家二輸入8位數帳號，玩家二同樣透過MyMQTT傳送帳號給ESP32，ESP32確認接收玩家二的帳號後，會再傳送要求輸入題目的指令，並且會檢查玩家二傳送的題目是否符合「四個數字不重複」的規則，若不符合則會傳送指令要求重新輸入。EP32確認兩個玩家皆已登入帳號，且玩家二也出完題目後，便會宣布遊戲開始，並啟動倒數計時5分鐘。
+
+\subsubsection{遊戲進行中}
+{\indent}8051收到遊戲開始的通知時，會有遊戲開始的音效，且可看到七段顯示器左半部有遊戲剩餘時間，以及LED燈顯示剩餘幾次猜測機會(總共5次)，之後便可用16鍵盤來輸入猜測的數字，猜測的數字會顯示在七段顯示器的右半部，按下enter鍵後，會透過UART傳給ESP32檢查猜測的數字，若猜測的數字不符合「四個數字不重複」的規則，會收到Error指令及播放音效，此次不會消耗猜測機會，可藉由刪除鍵修改答案後再傳送一次，接著會由ESP32回覆結果。猜錯會收到比對結果(ex:1A2B)及播放錯誤音效，玩家一需要繼續猜測，可透過上下鍵來從七段顯示器查看過去猜測的紀錄，猜錯五次則為玩家二獲勝；若猜對則播放勝利音效，且此時七段顯示器顯示登入的帳號，直到登出或新一場遊戲開始。遊戲進行當中，會將遊戲過程傳給玩家二，也會透過IFTTT傳到google表單。其中，若玩家一在遊戲中途登出，則視為玩家二獲勝。
+
+\subsubsection{後置作業}
+{\indent}遊戲結束後，ESP32會將最終結果傳給玩家二，並更新到firebase，firebase記錄著每個帳號的輸贏次數。之後重新初始化參數，並透過MyMQTT詢問玩家二是否繼續遊戲，玩家一若為登入狀態則自動回覆帳號。
+
+\subsection{功能敘述}
+\begin{itemize}
+
+\item ESP32
+\begin{itemize}
+\item Timer：遊戲時間倒數計時300秒
+\item UART：接收8051傳來的帳號、猜測的數字...等，且可回傳遊戲開始、結束等訊號，以及控制8051上的時間。
+\item Firebase：連接網路更新兩個玩家的戰績。
+\item IFTTT：將遊戲過程上傳到google表單。
+\item MQTT：傳送遊戲過程通知給使用MyMQTT的玩家二，以及接收該玩家設定的帳號、數字題目。
+\end{itemize}
+
+\item 8051
+\begin{itemize}
+\item EEPROM：存取玩家一的帳號。
+\item 七段顯示器：顯示玩家一輸入的帳號、按下的數字、結果(幾A幾B)、比賽剩餘時間。
+\item 喇叭：遊戲開始、結束、猜錯...等音效。
+\item 16 keyboard：玩家一輸入帳號、猜測的數字，可查看紀錄、清除當前輸入。
+\item LED：顯示剩餘猜測機會。
+\item UART：傳送帳號、猜測的數字給ESP32。
+\end{itemize}
+
+\item 手機
+\begin{itemize}
+\item MyMQTT：傳送帳號、數字題目給ESP32。
+\end{itemize}
+
+\end{itemize}
+
+
+\section{程式碼}
+
+\subsection{ESP32}
+
+\subsubsection{初始設定}
+\lstinputlisting[caption={},language=Python]{EmbeddedSystem/ESP32/init.py}
+這裡是關於遊戲的一些初始設定，傳給8051的訊息種類是指令的概念，讓8051接收到時能判斷接下來該如何運作，例如:Time指令代表要更新遊戲剩餘時間。接著還有Timer設定，在之前的作業中，通常下一行就是t.init()，但因為這個timer我是要用來當作遊戲的倒數計時，於是我等到遊戲開始時才會啟動timer。最後還有關於MQTT的設定，原先我是讓ESP32和玩家二訂閱同一個頻道，但會導致MQTT也會收到自己的指令，判斷訊息時會有點麻煩，於是我讓MQTT訂閱player頻道，指令部分則在host頻道發布，玩家二則訂閱兩個頻道。
+
+\subsubsection{收到MQTT訊息呼叫的函式}
+\lstinputlisting[caption={},language=Python]{EmbeddedSystem/ESP32/sub_cb.py}
+根據當前紀錄的狀態來檢查玩家二傳來的訊息。若當前狀態在等玩家二的帳號，則檢查帳號是否符合規則，符合則設定遊戲相關參數並將此紀錄上傳到google表單，不符合則用MQTT發布訊息告知玩家二重新填寫，其他狀態也為類似操作。
+
+\subsubsection{遊戲規則相關函式}
+\lstinputlisting[caption={},language=Python]{EmbeddedSystem/ESP32/game_rule.py}
+這些函式是用來檢查是否符合遊戲規則。\\
+第一個函式可用來檢查玩家二出的題目和玩家一的猜測是否符合長度為4且數字不重複的規定。\\
+第二個函式用來檢查玩家一傳來的猜測是否等於玩家二出的題目。\\
+第三個函式是當玩家一猜測錯誤時，計算猜測的數字比對答案是幾A幾B。
+
+\subsubsection{Timer}
+\lstinputlisting[caption={},language=Python]{EmbeddedSystem/ESP32/timer.py}
+這個函式是當timer啟動時，每過1秒會呼叫的函式，用來更新遊戲剩餘時間，並且也會通知8051更新剩餘時間。原先我是想直接在8051上使用timer，但因為我在8051上用到的功能已經佔用了2個timer，於是改用ESP32的timer來做到倒數計時的效果，並藉此通知8051。
+
+\subsubsection{主函式}
+\lstinputlisting[caption={},language=Python]{EmbeddedSystem/ESP32/main.py}
+主函式會不斷確認遊戲狀態以及兩位玩家是否傳來訊息。\\
+首先會先確認玩家二是否有傳來訊息，若有則會呼叫先前提到的sub cb函式來處理。\\
+接下來判斷兩位玩家是否都已準備好且未進入遊戲開始狀態，若是則轉換狀態到遊戲開始，並使用UART傳送Start指令給玩家一、MQTT通知玩家二，以及在此啟動timer開始倒數計時。而遊戲中的所有過程(例如:登入、登出、遊戲開始......等)都將會紀錄到google表單。\\
+也會不斷檢查遊戲時間是否已超過300秒，若是則宣告玩家二獲勝。\\\\
+接著檢查8051是否透過UART傳來訊息，若有則會先轉換格式，且因為readline每次會讀到換行為止，於是我在8051傳送訊息過來時，都會在結尾加上換行符號，因此在ESP32內做解讀前會先把換行符號去掉。\\
+根據先傳來的指令判斷接下來8051傳送的訊息是甚麼目的，例如:account代表接下來傳送玩家一的帳號。若傳來的是猜測的答案，則會先檢查是否符合規則，不符合會回傳Error指令，且此次不計算在一回合內，若符合規則則會判斷對錯，答對則為玩家一獲勝；答錯五次則為玩家二獲勝。
+
+\subsubsection{遊戲結束後的處理}
+\lstinputlisting[caption={},language=Python]{EmbeddedSystem/ESP32/game_end.py}
+首先因為遊戲結束，於是關閉timer，不繼續倒數，直到下次遊戲開始才會再開啟。\\
+接著更新兩位玩家的戰績到firebase，其中因為我在測試時遇到了BLE [Errno 12] ENOMEM的錯誤訊息，查了資訊發現是因為連線沒有關閉會一直霸佔資源，於是在每次連線完後執行close來關閉連線，就解決這個問題了!
+
+\subsection{8051}
+
+\subsubsection{自訂函式庫}
+\begin{itemize}
+\item delay.h
+\end{itemize}
+\lstinputlisting[caption={delay函式庫宣告},language=C]{EmbeddedSystem/8051/delay.h}
+\lstinputlisting[caption={delay函式定義},language=C]{EmbeddedSystem/8051/delay.c}
+
+\begin{itemize}
+\item eeprom.h
+\end{itemize}
+\lstinputlisting[caption={eeprom函式庫宣告},language=C]{EmbeddedSystem/8051/eeprom.h}
+\lstinputlisting[caption={eeprom函式定義},language=C]{EmbeddedSystem/8051/eeprom.c}
+
+\begin{itemize}
+\item uart.h
+\end{itemize}
+\lstinputlisting[caption={uart函式庫宣告},language=C]{EmbeddedSystem/8051/uart.h}
+\lstinputlisting[caption={uart函式定義},language=C]{EmbeddedSystem/8051/uart.c}
+
+這幾個自訂函式庫幾乎都和上課的範例程式碼相同，只是為了不讓主程式看起來太過冗長，於是拉出來變成獨立檔案。其中有變的是UART的部分，首先在UARTSendStr的函式中，因為要讓ESP32的readline能一次讀到一個指令，於是會在使用UART SendStr時，最後一位char設為換行符號，但用原本只判斷結束標誌的方式會跳脫不出來，於是多加了一個讀到換行即跳出的部分。\\
+之後的中斷程式也改了一些，當我當前讀到的指令為Time時，更新遊戲時間，原先這個判斷我放在main裡，但會被其他函式影響，導致時間跑掉的問題，於是我在接收到Time指令的地方就立即更新，就解決這個問題了!
+
+\subsubsection{主程式初始設定}
+\lstinputlisting[caption={},language=C]{EmbeddedSystem/8051/init.c}
+
+\subsubsection{七段顯示器}
+\lstinputlisting[caption={},language=C]{EmbeddedSystem/8051/display.c}
+
+這裡都是和七段顯示器相關的函式，display set設定七段顯示器要顯示的內容。
+
+\subsubsection{Timer}
+\lstinputlisting[caption={},language=C]{EmbeddedSystem/8051/timer.c}
+
+原先Timer想用來當作倒數計時器及用來呼叫顯示七段顯示器，但後來增加了播放音效的功能，會動態調整到TH0和TL0的部分，於是將倒數計時的任務交給ESP32的timer來執行，8051的timer則負責七段顯示器和播放音效，當播放音樂時，TH0和TL0會根據節拍調整，其餘時候會固定為1ms來顯示七段顯示器。
+
+\subsubsection{播放音效}
+\lstinputlisting[caption={},language=C]{EmbeddedSystem/8051/music.c}
+
+play song會根據傳入的狀態播放不同音效。
+
+\subsubsection{LED}
+\lstinputlisting[caption={},language=C]{EmbeddedSystem/8051/led.c}
+
+控制LED燈來顯示剩餘幾次猜測機會。led close函式用來在答錯一次時關一個燈，led all則在初始化或遊戲結束時，用來統一關閉/開啟所有燈。
+
+\subsubsection{16鍵盤}
+\lstinputlisting[caption={},language=C]{EmbeddedSystem/8051/keyboard.c}
+鍵盤依序功能為: \\
+1  2  3  +\\
+4  5  6  -\\
+7  8  9  clean\\
+0  X  X  enter
+
+\subsubsection{主函式}
+\lstinputlisting[caption={},language=C]{EmbeddedSystem/8051/main.c}
+一開始先設定TImer和UART，之後讀取EPPROM內的資訊，若狀態欄位顯示為登入狀態，則直接將帳號資訊傳給ESP32。\\
+接著進入while迴圈，每次檢查是否按下16鍵盤，並判斷按下的是甚麼鍵，再依照不同狀態進行不同操作。\\
+也會檢查是否有ESP32傳來的指令，依照指令類別來播放不同音效和進行不同操作。\\
+然後判斷是否有收到完整的猜測結果，若有則會儲存到record的陣列內，並開啟顯示結果的flag。\\
+若當前為登入狀態，且常按登出按鈕，則除了登出遊戲外，也等同放棄這場遊戲，便由玩家二獲勝，但因已經登出遊戲，於是不會播放輸掉遊戲的音效，而此登出狀態會寫入EEPROM。\\
+最後更新七段顯示器要顯示的內容。
+
+\subsubsection{遊戲結束後的處理}
+\lstinputlisting[caption={},language=C]{EmbeddedSystem/8051/game_end.c}
+
+\section{成果展示}
+
+\subsection{8051}
+
+\subsubsection{初始狀態}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/1.png}
+  \caption{在剛打開8051時，因為還未登入，於是呈現-的符號}
+  \label{fig1}
+\end{figure}
+
+\FloatBarrier
+\newpage
+\subsubsection{輸入帳號}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/2.png}
+  \caption{輸入帳號時，輸入到的顯示數字，未輸入到的呈現-的符號}
+  \label{fig2}
+\end{figure}
+
+
+\FloatBarrier
+\newpage
+\subsubsection{玩家一登入}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/3.png}
+  \caption{登入後會顯示完整帳號}
+  \label{fig3}
+\end{figure}
+
+
+\FloatBarrier
+\newpage
+\subsubsection{遊戲開始}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/4.png}
+  \caption{收到遊戲開始通知後，會顯示遊戲剩餘時間，且可看到LED顯示剩餘5次機會}
+  \label{fig4}
+\end{figure}
+
+
+\FloatBarrier
+\newpage
+\subsubsection{輸入猜測數字}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/5.png}
+  \caption{可以用16鍵盤輸入猜測數字，此為輸入6983}
+  \label{fig5}
+\end{figure}
+
+\FloatBarrier
+\newpage
+\subsubsection{顯示回傳結果}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/6.png}
+  \caption{6983對比答案(1234)的結果為0A1B，顯示在七段顯示器上，且因猜測錯誤，於是LED少一個燈}
+  \label{fig6}
+\end{figure}
+
+\FloatBarrier
+\newpage
+\subsubsection{輸入錯誤的格式}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/7.png}
+  \caption{輸入8888，因為不符合不重複數字的規則，於是LED不滅燈，且會播放錯誤音效，須clean重新輸入}
+  \label{fig7}
+\end{figure}
+
+\FloatBarrier
+\newpage
+\subsubsection{玩家一登出}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/8.png}
+  \caption{登出後等同初始狀態，會顯示-符號}
+  \label{fig8}
+\end{figure}
+
+\FloatBarrier
+\newpage
+\subsubsection{正常遊戲結束}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/14.png}
+  \caption{正常遊戲結束時，會顯示玩家一登入的帳號}
+  \label{fig14}
+\end{figure}
+
+\FloatBarrier
+\newpage
+\subsection{MyMQTT}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.5\textwidth]{EmbeddedSystem/img/m1.jpg}
+  \caption{手機傳送玩家二的帳號和出的題目}
+  \label{fig15}
+\end{figure}
+
+\FloatBarrier
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.5\textwidth]{EmbeddedSystem/img/m2.jpg}
+  \caption{手機收到的訊息也為遊戲過程}
+  \label{fig16}
+\end{figure}
+
+\FloatBarrier
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.5\textwidth]{EmbeddedSystem/img/m3.jpg}
+  \caption{手機收到的訊息也為遊戲過程}
+  \label{fig17}
+\end{figure}
+
+\FloatBarrier
+\subsection{遊戲紀錄}
+\subsubsection{google表單}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/r1.png}
+  \caption{google表單記錄遊戲過程}
+  \label{fig1}
+\end{figure}
+
+\FloatBarrier
+\newpage
+\subsubsection{firebase}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{EmbeddedSystem/img/r2.png}
+  \caption{firebase紀錄玩家戰績}
+  \label{fig1}
+\end{figure}
+
+\FloatBarrier
+\section{心得}
+原本想說這個專案都是利用先前所學的東西，應該很快就可以完成，結果還是花了我很多時間！我覺得比較麻煩的部份是要統一遊戲狀態，ESP32和MQTT傳輸的部分，只有一開始訂閱同頻道並在同頻道發送訊息會有ESP32收到自己訊息的問題，後來改成ESP32 在另一個host頻道發送訊息，MQTT訂閱該頻道後，就沒問題了！ESP32和8051間的傳輸則複雜一點，根據不同的狀態會有不同操作，且在8051上，處理指令的程式碼寫在不同的地方，會產生不一樣的效果，例如：更改時間的判斷若是寫在main函式裡則會有延遲，導致顯示還有4秒時，就跳出時間到的通知，於是後來便將時間判斷改到第一時間收到指令的UART 中斷函式內，問題便解決了！\\
+
+其餘還有一些之前沒遇到的問題，像是我為了讓主程式不要太冗長，於是將一些程式移到另一個檔案，並透過函式庫的方式來引入，但就遇到了不知該如何共用參數的問題，後來上網查了一下，發現使用extern 就可以共用了，學到了新東西！\\
+
+在測試8051透過UART傳送給ESP32時，發現需要在每一次傳送的訊息後加上換行符號，否則可能會有兩個訊息黏在一起的問題，但在加上換行符號後，在執行send byte 函式時，竟然會停不下來，後來猜測是因為while 的判斷條件是結尾符號，而我是傳送char的陣列而非字串，可能就沒有結尾符號，於是在while 內再多加一個讀到換行就跳出的判斷，便成功解決這個問題了！\\
+
+後來還有遇到一個問題是我想要播放音效，卻發現我兩個timer已經用在了倒數計時和UART ，原本想說或許可以和倒數計時共用timer，但想到了播放音效的計時是不固定的，這會導致倒數計時不準確，於是便把倒數計時的功能交給ESP32，再由它傳送Time指令告訴8051要更新時間，這樣就能播放音效又能倒數計時了！\\
+
+最後非常驚險的是，在解決一些小bug時，需要多加一個參數，但卻在8051宣告參數的時候，出現超出記憶體限制的錯誤！幸好有發現沒有用到參數，於是刪除了之後才可以執行。\\
+
+在ESP32的部分則因為可以很方便地用print訊息來判斷錯誤原因，所以沒有甚麼困難，只有在要上傳遊戲過程和更新兩個玩家的戰績時，跳出了BLE [Errno 12] ENOMEM的錯誤訊息，上網查了一下是連線佔用太多空間，使用完需要關閉連線，於是後來便在每一次urequest 後都呼叫close 來關閉連線，以及找到使用的xtools內的webhook函式，在那之中也加上了close，便可以順利執行了！最後就剩函式內要使用全域變數需要記得用global 來宣告的小地方要注意。\\
+
+這個專案做起來並不會非常困難，只是有很多小地方需要細心判斷和處理，於是花了很多時間，但藉由這個專案，我複習到了這學期所學的許多功能，甚至學到了額外知識，也是有所收穫！
+
+
+\end{document}
